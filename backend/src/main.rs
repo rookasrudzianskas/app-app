@@ -98,4 +98,56 @@ fn handle_client(mut stream: TcpStream) {
     }
 }
 
+//handle post request
+fn handle_post_request(request: &str) -> (String, String) {
+    match (get_user_request_body(request), Client::connect(DB_URL, NoTls)) {
+        (Ok(user), Ok(mut client)) => {
+            // Insert the user and retrieve the ID
+            let row = client
+                .query_one(
+                    "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
+                    &[&user.name, &user.email]
+                )
+                .unwrap();
 
+            let user_id: i32 = row.get(0);
+
+            // Fetch the created user data
+            match client.query_one("SELECT id, name, email FROM users WHERE id = $1", &[&user_id]) {
+                Ok(row) => {
+                    let user = User {
+                        id: Some(row.get(0)),
+                        name: row.get(1),
+                        email: row.get(2),
+                    };
+
+                    (OK_RESPONSE.to_string(), serde_json::to_string(&user).unwrap())
+                }
+                Err(_) =>
+                    (INTERNAL_ERROR.to_string(), "Failed to retrieve created user".to_string()),
+            }
+        }
+        _ => (INTERNAL_ERROR.to_string(), "Internal error".to_string()),
+    }
+}
+
+//handle get request
+fn handle_get_request(request: &str) -> (String, String) {
+    match (get_id(&request).parse::<i32>(), Client::connect(DB_URL, NoTls)) {
+        (Ok(id), Ok(mut client)) =>
+            match client.query_one("SELECT * FROM users WHERE id = $1", &[&id]) {
+                Ok(row) => {
+                    let user = User {
+                        id: row.get(0),
+                        name: row.get(1),
+                        email: row.get(2),
+                    };
+
+                    (OK_RESPONSE.to_string(), serde_json::to_string(&user).unwrap())
+                }
+                _ => (NOT_FOUND.to_string(), "User not found".to_string()),
+            }
+
+        _ => (INTERNAL_ERROR.to_string(), "Internal error".to_string()),
+    }
+}
